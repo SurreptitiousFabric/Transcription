@@ -48,14 +48,17 @@ const (
 
 type editMode int
 
+var censusYears = []string{"1841", "1851", "1861", "1871", "1881", "1891", "1901", "1911", "1921"}
+
 const (
-	modeHeader editMode = iota
+	modeYearSelect editMode = iota
+	modeHeader
 	modeBody
 	modeFooter
 	modePickFile
 )
 
-var modeNames = []string{"HEADER", "BODY", "FOOTER"}
+var modeNames = []string{"YEAR", "HEADER", "BODY", "FOOTER"}
 
 type Row struct{ Col [fieldCount]string }
 
@@ -64,6 +67,10 @@ type model struct {
 	header [headCount]string
 	rows   [rowCount]Row
 	footer [footCount]string
+
+	// year selection
+	year    string
+	yearIdx int
 
 	// editing state
 	mode      editMode
@@ -108,10 +115,13 @@ func newModel() model {
 	}
 	m.headIn[0].Focus()
 
-	// file‑picker
+	// file-picker
 	p := fp.New()
 	p.AllowedTypes = []string{".html", ".htm"}
 	m.picker = p
+
+	m.mode = modeYearSelect
+	m.yearIdx = 2 // default to 1861
 
 	return m
 }
@@ -122,6 +132,25 @@ func (m model) Init() tea.Cmd { return nil }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.justWrote, m.justRead = false, false
+
+	/* ---------- YEAR SELECT MODE ----------- */
+	if m.mode == modeYearSelect {
+		if km, ok := msg.(tea.KeyMsg); ok {
+			switch km.Type {
+			case tea.KeyEsc, tea.KeyCtrlC:
+				return m, tea.Quit
+			case tea.KeyUp:
+				m.yearIdx = (m.yearIdx - 1 + len(censusYears)) % len(censusYears)
+			case tea.KeyDown:
+				m.yearIdx = (m.yearIdx + 1) % len(censusYears)
+			case tea.KeyEnter:
+				m.year = censusYears[m.yearIdx]
+				m.mode = modeHeader
+				m.loadCurrent()
+			}
+		}
+		return m, nil
+	}
 
 	/* ---------- FILE‑PICKER MODE ---------- */
 	if m.mode == modePickFile {
@@ -231,14 +260,32 @@ func (m *model) wrapCol() {
 /* ============== VIEW ============== */
 
 func (m model) View() string {
+	if m.mode == modeYearSelect {
+		var b bytes.Buffer
+		b.WriteString(lipgloss.NewStyle().Bold(true).Render("Select census year:\n\n"))
+		for i, y := range censusYears {
+			cursor := " "
+			if i == m.yearIdx {
+				cursor = ">"
+			}
+			b.WriteString(fmt.Sprintf("%s %s\n", cursor, y))
+		}
+		b.WriteString("\n(↑/↓ to choose, Enter to select, Esc to quit)")
+		return b.String()
+	}
+
 	if m.mode == modePickFile {
 		return lipgloss.NewStyle().Bold(true).Render("Pick a census HTML file (Esc to cancel):\n\n") + m.picker.View()
 	}
 
 	var b bytes.Buffer
+	year := m.year
+	if year == "" {
+		year = "1861"
+	}
 	title := fmt.Sprintf(
-		"1861 Census TUI — %-6s  (Ctrl‑H/B/F • ↑↓ • Tab/Shift‑Tab • Ctrl‑N clear row • Ctrl‑O open • Ctrl‑W write • Esc)",
-		modeNames[m.mode],
+		"%s Census TUI — %-6s  (Ctrl‑H/B/F • ↑↓ • Tab/Shift‑Tab • Ctrl‑N clear row • Ctrl‑O open • Ctrl‑W write • Esc)",
+		year, modeNames[m.mode],
 	)
 	b.WriteString(lipgloss.NewStyle().Bold(true).Render(title) + "\n\n")
 
